@@ -36,15 +36,25 @@ class YOLODetector:
         self.class_names = self._load_class_names(Path(xml_path).with_name("metadata.yaml"))
 
     def predict(self, frame: np.ndarray) -> np.ndarray:
+        boxes, scores, class_ids = self.infer(frame)
+        return self.annotate(frame, boxes, scores, class_ids)
+
+    def infer(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         orig_h, orig_w = frame.shape[:2]
         input_tensor, ratio, dwdh = self._preprocess(frame)
         raw_output = self.compiled_model([input_tensor])[self.output_layer]
 
-        boxes, scores, class_ids = self._postprocess(raw_output, ratio, dwdh, (orig_h, orig_w))
-        if boxes.shape[0] == 0:
-            return frame
+        return self._postprocess(raw_output, ratio, dwdh, (orig_h, orig_w))
 
-        return self._draw_detections(frame, boxes, scores, class_ids)
+    def annotate(
+        self,
+        frame: np.ndarray,
+        boxes_xyxy: np.ndarray,
+        scores: np.ndarray,
+        class_ids: np.ndarray,
+        fps: float | None = None,
+    ) -> np.ndarray:
+        return self._draw_detections(frame, boxes_xyxy, scores, class_ids, fps=fps)
 
     @staticmethod
     def _resolve_model_xml(model_path: str) -> str:
@@ -180,19 +190,21 @@ class YOLODetector:
         boxes_xyxy: np.ndarray,
         scores: np.ndarray,
         class_ids: np.ndarray,
+        fps: float | None = None,
     ) -> np.ndarray:
         annotated = frame.copy()
 
         for box, score, class_id in zip(boxes_xyxy, scores, class_ids):
             x1, y1, x2, y2 = [int(v) for v in box]
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            color = self._class_color(int(class_id))
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
 
             class_name = self.class_names.get(int(class_id), str(int(class_id)))
             label = f"{class_name} {float(score):.2f}"
 
             (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             y_text_top = max(0, y1 - text_h - baseline - 4)
-            cv2.rectangle(annotated, (x1, y_text_top), (x1 + text_w + 4, y1), (0, 255, 0), -1)
+            cv2.rectangle(annotated, (x1, y_text_top), (x1 + text_w + 4, y1), color, -1)
             cv2.putText(
                 annotated,
                 label,
@@ -204,4 +216,43 @@ class YOLODetector:
                 cv2.LINE_AA,
             )
 
+        if fps is not None:
+            fps_label = f"FPS: {fps:.1f}"
+            cv2.putText(
+                annotated,
+                fps_label,
+                (8, 16),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
+
         return annotated
+
+    @staticmethod
+    def _class_color(class_id: int) -> tuple[int, int, int]:
+        palette = [
+            (255, 56, 56),
+            (255, 157, 151),
+            (255, 112, 31),
+            (255, 178, 29),
+            (207, 210, 49),
+            (72, 249, 10),
+            (146, 204, 23),
+            (61, 219, 134),
+            (26, 147, 52),
+            (0, 212, 187),
+            (44, 153, 168),
+            (0, 194, 255),
+            (52, 69, 147),
+            (100, 115, 255),
+            (0, 24, 236),
+            (132, 56, 255),
+            (82, 0, 133),
+            (203, 56, 255),
+            (255, 149, 200),
+            (255, 55, 199),
+        ]
+        return palette[class_id % len(palette)]

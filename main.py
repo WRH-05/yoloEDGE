@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import threading
 import time
 from typing import Optional
@@ -43,6 +44,17 @@ def _get_float_env(primary_key: str, fallback_key: Optional[str], default: float
         return default
 
 
+def _get_local_ip() -> str:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        sock.close()
+
+
 def main() -> None:
     load_dotenv()
 
@@ -53,54 +65,96 @@ def main() -> None:
     port = _get_int_env("PORT", "SERVER_PORT", 8000)
     confidence = _get_float_env("CONFIDENCE", "CONFIDENCE_THRESHOLD", 0.25)
     model_path = _get_env("MODEL_PATH", default="models/yolo11n_openvino_model/")
-    frame_skip = max(1, _get_int_env("FRAME_SKIP", None, 2))
+    target_detect_fps = max(0.5, _get_float_env("TARGET_DETECT_FPS", None, 2.5))
+    detect_interval = 1.0 / target_detect_fps
 
     camera = ThreadedCamera(stream_url)
     detector = YOLODetector(model_path=model_path, confidence=confidence)
 
     frame_lock = threading.Lock()
     stop_event = threading.Event()
-    latest_frame: Optional[np.ndarray] = None
+    latest_raw_frame: Optional[np.ndarray] = None
+    latest_boxes = np.empty((0, 4), dtype=np.float32)
+    latest_scores = np.empty((0,), dtype=np.float32)
+    latest_class_ids = np.empty((0,), dtype=np.int32)
+    latest_det_fps: float = 0.0
 
     def get_latest_frame() -> Optional[np.ndarray]:
         with frame_lock:
-            if latest_frame is None:
+            if latest_raw_frame is None:
                 return None
-            return latest_frame.copy()
+            frame = latest_raw_frame.copy()
+            boxes = latest_boxes.copy()
+            scores = latest_scores.copy()
+            class_ids = latest_class_ids.copy()
+            det_fps = latest_det_fps
+        return detector.annotate(frame, boxes, scores, class_ids, fps=det_fps)
 
-    def processing_loop() -> None:
-        nonlocal latest_frame
-        frame_count = 0
+    def ingest_loop() -> None:
+        nonlocal latest_raw_frame
 
         while not stop_event.is_set():
             frame = camera.get_frame()
             if frame is None:
-                time.sleep(0.01)
+                time.sleep(0.005)
                 continue
-
-            frame_count += 1
-            if frame_count % frame_skip != 0:
-                continue
-
-            try:
-                processed = detector.predict(frame)
-            except Exception:
-                processed = frame
 
             with frame_lock:
-                latest_frame = processed
+                latest_raw_frame = frame
+
+    def inference_loop() -> None:
+        nonlocal latest_boxes, latest_scores, latest_class_ids, latest_det_fps
+        last_infer_time = 0.0
+
+        while not stop_event.is_set():
+            with frame_lock:
+                frame = None if latest_raw_frame is None else latest_raw_frame.copy()
+
+            if frame is None:
+                time.sleep(0.005)
+                continue
+
+            now = time.perf_counter()
+            elapsed_since_last = now - last_infer_time
+            if elapsed_since_last < detect_interval:
+                time.sleep(0.001)
+                continue
+
+            start = time.perf_counter()
+            try:
+                boxes, scores, class_ids = detector.infer(frame)
+            except Exception:
+                boxes = np.empty((0, 4), dtype=np.float32)
+                scores = np.empty((0,), dtype=np.float32)
+                class_ids = np.empty((0,), dtype=np.int32)
+
+            infer_elapsed = max(time.perf_counter() - start, 1e-6)
+            instant_fps = 1.0 / infer_elapsed
+            latest_det_fps = instant_fps if latest_det_fps <= 0.0 else (0.85 * latest_det_fps + 0.15 * instant_fps)
+            last_infer_time = time.perf_counter()
+
+            with frame_lock:
+                latest_boxes = boxes
+                latest_scores = scores
+                latest_class_ids = class_ids
 
     camera.start()
-    worker = threading.Thread(target=processing_loop, name="detector-worker", daemon=True)
-    worker.start()
+    ingest_worker = threading.Thread(target=ingest_loop, name="frame-ingest-worker", daemon=True)
+    infer_worker = threading.Thread(target=inference_loop, name="detector-worker", daemon=True)
+    ingest_worker.start()
+    infer_worker.start()
 
     app = create_app(get_latest_frame)
+    local_ip = _get_local_ip()
+    print(f"Video feed (local): http://127.0.0.1:{port}/video_feed")
+    print(f"Video feed (network): http://{local_ip}:{port}/video_feed")
 
     try:
         uvicorn.run(app, host="0.0.0.0", port=port)
     finally:
         stop_event.set()
-        worker.join(timeout=2.0)
+        ingest_worker.join(timeout=2.0)
+        infer_worker.join(timeout=2.0)
         camera.stop()
 
 
