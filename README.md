@@ -32,13 +32,15 @@ yoloEDGE/
 
 #### A. Dependency Management (`requirements.txt`)
 Ensure the following versions are used to avoid "Illegal Instruction" errors on ARM64 and use a venv if needed:
-- `ultralytics`
 - `openvino>=2024.0.0`
 - `fastapi`
 - `uvicorn`
 - `opencv-python-headless` (Avoids GUI dependency issues on headless Ubuntu)
 - `numpy<2.0.0` (Critical for Raspberry Pi compatibility)
 - `python-dotenv`
+
+For model export on PC only, use `requirements-export.txt`:
+- `ultralytics`
 
 #### B. Camera Module (`src/camera.py`)
 - Implement a `ThreadedCamera` class using `cv2.VideoCapture`.
