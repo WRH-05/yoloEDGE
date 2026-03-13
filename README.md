@@ -1,5 +1,5 @@
 
-# Project Prompt: Edge AI YOLO11n Vision Server for Raspberry Pi
+# Project : Edge AI YOLO11n Vision Server for Raspberry Pi
 
 ### Project Goal
 Build a real-time Edge AI object detection system running on a Raspberry Pi 4B (8GB). The system will ingest a live MJPEG stream from a phone (IP Webcam app), perform inference using an **OpenVINO-optimized YOLO11n** model, and serve the annotated video back to a web browser using **FastAPI**.
