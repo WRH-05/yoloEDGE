@@ -15,16 +15,29 @@ class YOLODetector:
         confidence: float = 0.25,
         device: str = "CPU",
         iou_threshold: float = 0.45,
+        performance_hint: str = "THROUGHPUT",
+        num_threads: int | None = None,
+        num_streams: int | None = None,
+        max_candidates: int = 300,
     ) -> None:
         self.confidence = confidence
         self.iou_threshold = iou_threshold
         self.device = device.upper()
+        self.max_candidates = max(50, max_candidates)
 
         xml_path = self._resolve_model_xml(model_path)
 
         core = ov.Core()
         model = core.read_model(xml_path)
-        self.compiled_model = core.compile_model(model, self.device, {"PERFORMANCE_HINT": "LATENCY"})
+
+        compile_config: dict[str, str] = {"PERFORMANCE_HINT": performance_hint.upper()}
+        if num_streams is not None and num_streams > 0:
+            compile_config["NUM_STREAMS"] = str(num_streams)
+        if num_threads is not None and num_threads > 0:
+            compile_config["INFERENCE_NUM_THREADS"] = str(num_threads)
+            compile_config["CPU_THREADS_NUM"] = str(num_threads)
+
+        self.compiled_model = self._compile_with_fallback(core, model, compile_config)
 
         self.input_layer = self.compiled_model.input(0)
         self.output_layer = self.compiled_model.output(0)
@@ -34,6 +47,18 @@ class YOLODetector:
         self.input_w = int(input_shape[3])
 
         self.class_names = self._load_class_names(Path(xml_path).with_name("metadata.yaml"))
+
+    def _compile_with_fallback(self, core: ov.Core, model: ov.Model, config: dict[str, str]):
+        try:
+            return core.compile_model(model, self.device, config)
+        except Exception:
+            fallback_config = dict(config)
+            fallback_config.pop("CPU_THREADS_NUM", None)
+            try:
+                return core.compile_model(model, self.device, fallback_config)
+            except Exception:
+                final_config = {"PERFORMANCE_HINT": config.get("PERFORMANCE_HINT", "LATENCY")}
+                return core.compile_model(model, self.device, final_config)
 
     def predict(self, frame: np.ndarray) -> np.ndarray:
         boxes, scores, class_ids = self.infer(frame)
@@ -156,6 +181,12 @@ class YOLODetector:
         boxes_xywh = boxes_xywh[valid]
         scores = scores[valid]
         class_ids = class_ids[valid].astype(np.int32)
+
+        if boxes_xywh.shape[0] > self.max_candidates:
+            topk_idx = np.argpartition(scores, -self.max_candidates)[-self.max_candidates:]
+            boxes_xywh = boxes_xywh[topk_idx]
+            scores = scores[topk_idx]
+            class_ids = class_ids[topk_idx]
 
         boxes_xyxy = np.empty_like(boxes_xywh)
         boxes_xyxy[:, 0] = boxes_xywh[:, 0] - boxes_xywh[:, 2] / 2
