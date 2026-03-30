@@ -1,92 +1,140 @@
 
-# Project : Edge AI YOLO11n Vision Server for Raspberry Pi
+# YOLO EDGE on Raspberry Pi (Beginner Guide)
 
-### Project Goal
-Build a real-time Edge AI object detection system running on a Raspberry Pi 4B (8GB). The system will ingest a live MJPEG stream from a phone (IP Webcam app), perform inference using an **OpenVINO-optimized YOLO11n** model, and serve the annotated video back to a web browser using **FastAPI**.
+This project runs real-time object detection on a Raspberry Pi using:
+- a phone camera stream (MJPEG via IP Webcam)
+- an OpenVINO YOLO model
+- a FastAPI video server
 
-### Target Hardware/OS
-- **Device:** Raspberry Pi 4B (ARM64 architecture)
-- **OS:** Ubuntu with ROS2 Humble
-- **Model Optimization:** OpenVINO (Required for Pi CPU performance)
+If you are new to Raspberry Pi or Python, follow the steps in order.
 
----
+## What You Need
 
-### 1. Project Folder Structure
-```text
-yoloEDGE/
-├── models/
-│   └── yolo11n_openvino_model/    # Optimized OpenVINO model folder
-├── src/
-│   ├── __init__.py
-│   ├── camera.py                  # Threaded IP Webcam capture logic
-│   ├── detector.py                # YOLO11 OpenVINO inference class
-│   └── server.py                  # FastAPI streaming server logic
-├── main.py                        # Entry point (Orchestrator)
-├── .env                           # Configuration (IPs, Ports, Confidence)
-└── requirements.txt               # Dependencies
-```
+- Raspberry Pi 4 (recommended 8GB), 64-bit OS
+- Phone and Pi on the same Wi-Fi network
+- Internet access on the Pi (for package install)
+- This repo cloned on the Pi
+- OpenVINO model files already in this folder:
+  - models/yolo11n_openvino_model/
+  - models/yolo11n_openvino_model/*.xml
 
----
+## 1. Open Terminal on the Pi
 
-### 2. Technical Requirements for the Coding Agent
+Go into the project folder:
 
-#### A. Dependency Management (`requirements.txt`)
-Ensure the following versions are used to avoid "Illegal Instruction" errors on ARM64 and use a venv if needed:
-- `openvino>=2024.0.0`
-- `fastapi`
-- `uvicorn`
-- `opencv-python-headless` (Avoids GUI dependency issues on headless Ubuntu)
-- `numpy<2.0.0` (Critical for Raspberry Pi compatibility)
-- `python-dotenv`
+	cd ~/yoloEDGE
 
-For model export on PC only, use `requirements-export.txt`:
-- `ultralytics`
+If you have not cloned the repo yet:
 
-#### B. Camera Module (`src/camera.py`)
-- Implement a `ThreadedCamera` class using `cv2.VideoCapture`.
-- It must continuously read frames from the `IP_WEBCAM_URL` in a background thread to prevent frame buffering/latency.
-- Provide a `get_frame()` method that returns the most recent frame.
+	git clone https://github.com/WRH-05/yoloEDGE.git
+	cd yoloEDGE
 
-#### C. Detection Module (`src/detector.py`)
-- Load the YOLO11n model using the OpenVINO framework.
-- The class should initialize the model once.
-- The `predict()` method should accept a raw frame, perform inference, and return an annotated frame using `results[0].plot()`.
-- **Optimization:** Use `half=True` or `int8` if available, and set `task='detect'`.
+## 2. Install System Packages (one-time)
 
-#### D. Server Module (`src/server.py`)
-- Use **FastAPI** with `StreamingResponse`.
-- Create a route `/video_feed` that yields JPEG-encoded frames in a multipart/x-mixed-replace format.
-- Ensure the server is hosted on `0.0.0.0` so it's accessible from other devices on the network.
+	sudo apt update
+	sudo apt install -y python3 python3-venv python3-pip git
 
-#### E. Main Orchestrator (`main.py`)
-- Use `python-dotenv` to load configurations.
-- Coordinate the Camera thread, the Detector, and the FastAPI server.
-- **Frame Skipping Logic:** Since the Pi 4 handles ~3-5 FPS, implement logic to drop frames so the "Live" feed doesn't lag minutes behind.
+## 3. Create and Activate a Virtual Environment
 
----
+	python3 -m venv .venv
+	source .venv/bin/activate
 
-### 3. Environment Variables (`.env`)
-```bash
-IP_WEBCAM_URL=http://<phone_ip>:8080/video
-PORT=8000
-MODEL_PATH=models/yolo11n_openvino_model/
-CONFIDENCE=0.25
-```
+After activation, your prompt usually shows (.venv).
 
----
+## 4. Install Python Dependencies
 
-### 4. Implementation Steps for the Agent
-1.  **Code the Camera Streamer:** Handle the connection to the Phone's IP.
-2.  **Code the Detector:** Implement the YOLO11 logic specifically utilizing the OpenVINO exported folder.
-3.  **Code the FastAPI Server:** Create the streaming endpoint.
-4.  **Integration:** Connect them in `main.py` using a producer-consumer pattern (or simple shared global variables with Locks).
-5.  **Optimization:** Ensure `numpy` and `opencv` imports are handled safely to avoid ARM-specific crashes.
+	pip install --upgrade pip
+	pip install -r requirements.txt
 
----
+## 5. Set Up Phone Camera Stream
 
-### 5. Final Output Expectation
-The user should be able to run `python3 main.py` on the Raspberry Pi and open `http://<pi_ip>:8000/video_feed` on any computer to see the real-time detections.
+1. Install IP Webcam on your Android phone.
+2. Start the server in the app.
+3. Find your phone stream URL. It usually looks like:
 
-***
+	   http://192.168.1.50:8080/video
 
-**Instruction for the Agent:** *“Please generate the complete Python code for the structure above. Prioritize thread safety when sharing frames between the camera thread and the FastAPI server. Assume the model has already been exported to OpenVINO format on a PC and moved to the `/models` folder.”*
+4. Keep the phone app running.
+
+## 6. Create .env File
+
+In the project root, create a file named .env:
+
+	nano .env
+
+Paste this (change the phone IP):
+
+	IP_WEBCAM_URL=http://192.168.1.50:8080/video
+	PORT=8000
+	MODEL_PATH=models/yolo11n_openvino_model/
+	CONFIDENCE=0.25
+
+Optional performance tuning for Raspberry Pi:
+
+	TARGET_DETECT_FPS=2.5
+	OV_NUM_THREADS=4
+	OV_NUM_STREAMS=2
+	OV_PERFORMANCE_HINT=THROUGHPUT
+	MAX_CANDIDATES=300
+	STREAM_JPEG_QUALITY=70
+
+Save and exit in nano:
+- Ctrl+O, Enter
+- Ctrl+X
+
+## 7. Run the App
+
+Make sure your venv is active, then run:
+
+	python3 main.py
+
+You should see output similar to:
+- Video feed (local): http://127.0.0.1:8000/video_feed
+- Video feed (network): http://<pi_ip>:8000/video_feed
+
+## 8. View the Stream
+
+From another device on the same network, open:
+
+	http://<pi_ip>:8000/video_feed
+
+Example:
+
+	http://192.168.1.20:8000/video_feed
+
+If you open just the root URL, you will get a message telling you to open /video_feed.
+
+## 9. Stop the App
+
+In the terminal running the server:
+
+	Ctrl+C
+
+## Troubleshooting (Most Common)
+
+1. Error: IP_WEBCAM_URL is required
+- Your .env file is missing or not in the project root.
+
+2. No video appears
+- Check phone and Pi are on same Wi-Fi.
+- Open the phone stream URL directly in a browser first.
+- Keep IP Webcam app running in foreground.
+
+3. Port not reachable
+- Confirm you are using Pi IP from the startup log.
+- Confirm nothing else is using port 8000.
+- Try changing PORT in .env to 8001 and restart.
+
+4. Slow FPS on Pi
+- Lower stream resolution/FPS in the phone app.
+- Reduce STREAM_JPEG_QUALITY (for example 60).
+- Lower TARGET_DETECT_FPS (for example 2.0).
+
+## Optional: Export OpenVINO Model on PC
+
+Do this only if you need to regenerate model files:
+
+	pip install -r requirements-export.txt
+	python export_model.py
+
+Then copy the generated OpenVINO model folder into models/ on the Pi.
