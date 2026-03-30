@@ -68,21 +68,8 @@ def main() -> None:
     target_detect_fps = max(0.5, _get_float_env("TARGET_DETECT_FPS", None, 2.5))
     detect_interval = 1.0 / target_detect_fps
 
-    ov_num_threads = max(1, _get_int_env("OV_NUM_THREADS", None, 4))
-    ov_num_streams = max(1, _get_int_env("OV_NUM_STREAMS", None, 2))
-    ov_performance_hint = _get_env("OV_PERFORMANCE_HINT", default="THROUGHPUT")
-    max_candidates = max(50, _get_int_env("MAX_CANDIDATES", None, 300))
-    stream_jpeg_quality = max(40, min(95, _get_int_env("STREAM_JPEG_QUALITY", None, 70)))
-
     camera = ThreadedCamera(stream_url)
-    detector = YOLODetector(
-        model_path=model_path,
-        confidence=confidence,
-        performance_hint=ov_performance_hint,
-        num_threads=ov_num_threads,
-        num_streams=ov_num_streams,
-        max_candidates=max_candidates,
-    )
+    detector = YOLODetector(model_path=model_path, confidence=confidence)
 
     frame_lock = threading.Lock()
     stop_event = threading.Event()
@@ -157,19 +144,10 @@ def main() -> None:
     ingest_worker.start()
     infer_worker.start()
 
-    app = create_app(get_latest_frame, jpeg_quality=stream_jpeg_quality)
+    app = create_app(get_latest_frame)
     local_ip = _get_local_ip()
     print(f"Video feed (local): http://127.0.0.1:{port}/video_feed")
     print(f"Video feed (network): http://{local_ip}:{port}/video_feed")
-    print(
-        "Tuning: "
-        f"OV_NUM_THREADS={ov_num_threads}, "
-        f"OV_NUM_STREAMS={ov_num_streams}, "
-        f"OV_PERFORMANCE_HINT={ov_performance_hint}, "
-        f"MAX_CANDIDATES={max_candidates}, "
-        f"STREAM_JPEG_QUALITY={stream_jpeg_quality}, "
-        f"TARGET_DETECT_FPS={target_detect_fps:.1f}"
-    )
 
     try:
         uvicorn.run(app, host="0.0.0.0", port=port)

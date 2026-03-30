@@ -53,7 +53,7 @@ After activation, your prompt usually shows (.venv).
 3. Find your phone stream URL. It usually looks like:
 
 	   http://192.168.1.50:8080/video
-4. i also would highly recommend going into this ip address on a browser to change the video resolution to 640x480 or less.
+4. Open this IP in a browser and set video resolution to 640x480 (or lower) for better Raspberry Pi performance.
 5. Keep the phone app running.
 
 ## 6. Create .env File
@@ -68,15 +68,6 @@ Paste this (change the phone IP):
 	PORT=8000
 	MODEL_PATH=models/yolo11n_openvino_model/
 	CONFIDENCE=0.25
-
-Optional performance tuning for Raspberry Pi:
-
-	TARGET_DETECT_FPS=2.5
-	OV_NUM_THREADS=4
-	OV_NUM_STREAMS=2
-	OV_PERFORMANCE_HINT=THROUGHPUT
-	MAX_CANDIDATES=300
-	STREAM_JPEG_QUALITY=70
 
 Save and exit in nano:
 - Ctrl+O, Enter
@@ -127,8 +118,7 @@ In the terminal running the server:
 
 4. Slow FPS on Pi
 - Lower stream resolution/FPS in the phone app.
-- Reduce STREAM_JPEG_QUALITY (for example 60).
-- Lower TARGET_DETECT_FPS (for example 2.0).
+- Use a stable power supply and close other heavy apps on the Pi.
 
 ## Optional: Export OpenVINO Model on PC
 
