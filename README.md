@@ -53,8 +53,8 @@ After activation, your prompt usually shows (.venv).
 3. Find your phone stream URL. It usually looks like:
 
 	   http://192.168.1.50:8080/video
-
-4. Keep the phone app running.
+4. i also would highly recommend going into this ip address on a browser to change the video resolution to 640x480 or less.
+5. Keep the phone app running.
 
 ## 6. Create .env File
 
